@@ -10,6 +10,7 @@ using LibHac.Ns;
 using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.HLE.FileSystem;
+using Ryujinx.HLE.FileSystem.Content;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using Ryujinx.HLE.Loaders.Executables;
 using Ryujinx.HLE.Loaders.Npdm;
@@ -48,7 +49,10 @@ namespace Ryujinx.HLE.HOS
             "sdk"
         };
 
-        private readonly Switch _device;
+        private readonly Switch            _device;
+        private readonly ContentManager    _contentManager;
+        private readonly VirtualFileSystem _fileSystem;
+
         private string _titleName;
         private string _displayVersion;
         private BlitStruct<ApplicationControlProperty> _controlData;
@@ -62,9 +66,12 @@ namespace Ryujinx.HLE.HOS
 
         public string TitleIdText => TitleId.ToString("x16");
 
-        public ApplicationLoader(Switch device)
+        public ApplicationLoader(Switch device, VirtualFileSystem fileSystem, ContentManager contentManager)
         {
-            _device      = device;
+            _device         = device;
+            _contentManager = contentManager;
+            _fileSystem     = fileSystem;
+
             _controlData = new BlitStruct<ApplicationControlProperty>(1);
         }
 
@@ -72,14 +79,14 @@ namespace Ryujinx.HLE.HOS
         {
             if (romFsFile != null)
             {
-                _device.Configuration.VirtualFileSystem.LoadRomFs(romFsFile);
+                _fileSystem.LoadRomFs(romFsFile);
             }
 
             LocalFileSystem codeFs = new LocalFileSystem(exeFsDir);
 
             Npdm metaData = ReadNpdm(codeFs);
 
-            _device.Configuration.VirtualFileSystem.ModLoader.CollectMods(new[] { TitleId }, _device.Configuration.VirtualFileSystem.ModLoader.GetModsBasePath());
+            _fileSystem.ModLoader.CollectMods(new[] { TitleId }, _fileSystem.ModLoader.GetModsBasePath());
 
             if (TitleId != 0)
             {
@@ -202,7 +209,7 @@ namespace Ryujinx.HLE.HOS
         public void LoadXci(string xciFile)
         {
             FileStream file = new FileStream(xciFile, FileMode.Open, FileAccess.Read);
-            Xci        xci  = new Xci(_device.Configuration.VirtualFileSystem.KeySet, file.AsStorage());
+            Xci        xci  = new Xci(_fileSystem.KeySet, file.AsStorage());
 
             if (!xci.HasPartition(XciPartitionType.Secure))
             {
@@ -219,7 +226,7 @@ namespace Ryujinx.HLE.HOS
 
             try
             {
-                (mainNca, patchNca, controlNca) = GetGameData(_device.Configuration.VirtualFileSystem, securePartition, _device.Configuration.UserChannelPersistence.Index);
+                (mainNca, patchNca, controlNca) = GetGameData(_fileSystem, securePartition, _device.UserChannelPersistence.Index);
             }
             catch (Exception e)
             {
@@ -235,9 +242,9 @@ namespace Ryujinx.HLE.HOS
                 return;
             }
 
-            _device.Configuration.ContentManager.LoadEntries(_device);
-            _device.Configuration.ContentManager.ClearAocData();
-            _device.Configuration.ContentManager.AddAocData(securePartition, xciFile, mainNca.Header.TitleId, _device.Configuration.FsIntegrityCheckLevel);
+            _contentManager.LoadEntries(_device);
+            _contentManager.ClearAocData();
+            _contentManager.AddAocData(securePartition, xciFile, mainNca.Header.TitleId);
 
             LoadNca(mainNca, patchNca, controlNca);
         }
@@ -253,7 +260,7 @@ namespace Ryujinx.HLE.HOS
 
             try
             {
-                (mainNca, patchNca, controlNca) = GetGameData(_device.Configuration.VirtualFileSystem, nsp, _device.Configuration.UserChannelPersistence.Index);
+                (mainNca, patchNca, controlNca) = GetGameData(_fileSystem, nsp, _device.UserChannelPersistence.Index);
             }
             catch (Exception e)
             {
@@ -271,8 +278,8 @@ namespace Ryujinx.HLE.HOS
 
             if (mainNca != null)
             {
-                _device.Configuration.ContentManager.ClearAocData();
-                _device.Configuration.ContentManager.AddAocData(nsp, nspFile, mainNca.Header.TitleId, _device.Configuration.FsIntegrityCheckLevel);
+                _contentManager.ClearAocData();
+                _contentManager.AddAocData(nsp, nspFile, mainNca.Header.TitleId);
 
                 LoadNca(mainNca, patchNca, controlNca);
 
@@ -286,7 +293,7 @@ namespace Ryujinx.HLE.HOS
         public void LoadNca(string ncaFile)
         {
             FileStream file = new FileStream(ncaFile, FileMode.Open, FileAccess.Read);
-            Nca        nca  = new Nca(_device.Configuration.VirtualFileSystem.KeySet, file.AsStorage(false));
+            Nca        nca  = new Nca(_fileSystem.KeySet, file.AsStorage(false));
 
             LoadNca(nca, null, null);
         }
@@ -303,7 +310,7 @@ namespace Ryujinx.HLE.HOS
             IStorage    dataStorage = null;
             IFileSystem codeFs      = null;
 
-            (Nca updatePatchNca, Nca updateControlNca) = GetGameUpdateData(_device.Configuration.VirtualFileSystem, mainNca.Header.TitleId.ToString("x16"), _device.Configuration.UserChannelPersistence.Index, out _);
+            (Nca updatePatchNca, Nca updateControlNca) = GetGameUpdateData(_fileSystem, mainNca.Header.TitleId.ToString("x16"), _device.UserChannelPersistence.Index, out _);
 
             if (updatePatchNca != null)
             {
@@ -316,7 +323,7 @@ namespace Ryujinx.HLE.HOS
             }
 
             // Load program 0 control NCA as we are going to need it for display version.
-            (_, Nca updateProgram0ControlNca) = GetGameUpdateData(_device.Configuration.VirtualFileSystem, mainNca.Header.TitleId.ToString("x16"), 0, out _);
+            (_, Nca updateProgram0ControlNca) = GetGameUpdateData(_fileSystem, mainNca.Header.TitleId.ToString("x16"), 0, out _);
 
             // Load Aoc
             string titleAocMetadataPath = Path.Combine(AppDataManager.GamesDirPath, mainNca.Header.TitleId.ToString("x16"), "dlc.json");
@@ -329,7 +336,7 @@ namespace Ryujinx.HLE.HOS
                 {
                     foreach (DlcNca dlcNca in dlcContainer.DlcNcaList)
                     {
-                        _device.Configuration.ContentManager.AddAocItem(dlcNca.TitleId, dlcContainer.Path, dlcNca.Path, dlcNca.Enabled);
+                        _contentManager.AddAocItem(dlcNca.TitleId, dlcContainer.Path, dlcNca.Path, dlcNca.Enabled);
                     }
                 }
             }
@@ -368,7 +375,7 @@ namespace Ryujinx.HLE.HOS
 
             Npdm metaData = ReadNpdm(codeFs);
 
-            _device.Configuration.VirtualFileSystem.ModLoader.CollectMods(_device.Configuration.ContentManager.GetAocTitleIds().Prepend(TitleId), _device.Configuration.VirtualFileSystem.ModLoader.GetModsBasePath());
+            _fileSystem.ModLoader.CollectMods(_contentManager.GetAocTitleIds().Prepend(TitleId), _fileSystem.ModLoader.GetModsBasePath());
 
             if (controlNca != null)
             {
@@ -381,7 +388,7 @@ namespace Ryujinx.HLE.HOS
 
             // NOTE: Nintendo doesn't guarantee that the display version will be updated on sub programs when updating a multi program application.
             // BODY: As such, to avoid PTC cache confusion, we only trust the the program 0 display version when launching a sub program.
-            if (updateProgram0ControlNca != null && _device.Configuration.UserChannelPersistence.Index != 0)
+            if (updateProgram0ControlNca != null && _device.UserChannelPersistence.Index != 0)
             {
                 string dummyTitleName = "";
                 BlitStruct<ApplicationControlProperty> dummyControl = new BlitStruct<ApplicationControlProperty>(1);
@@ -395,9 +402,9 @@ namespace Ryujinx.HLE.HOS
             }
             else
             {
-                IStorage newStorage = _device.Configuration.VirtualFileSystem.ModLoader.ApplyRomFsMods(TitleId, dataStorage);
+                IStorage newStorage = _fileSystem.ModLoader.ApplyRomFsMods(TitleId, dataStorage);
 
-                _device.Configuration.VirtualFileSystem.SetRomFs(newStorage.AsStream(FileAccess.Read));
+                _fileSystem.SetRomFs(newStorage.AsStream(FileAccess.Read));
             }
 
             if (TitleId != 0)
@@ -463,7 +470,7 @@ namespace Ryujinx.HLE.HOS
 
         private void LoadExeFs(IFileSystem codeFs, Npdm metaData = null)
         {
-            if (_device.Configuration.VirtualFileSystem.ModLoader.ReplaceExefsPartition(TitleId, ref codeFs))
+            if (_fileSystem.ModLoader.ReplaceExefsPartition(TitleId, ref codeFs))
             {
                 metaData = null; //TODO: Check if we should retain old npdm
             }
@@ -489,7 +496,7 @@ namespace Ryujinx.HLE.HOS
             }
 
             // ExeFs file replacements
-            ModLoadResult modLoadResult = _device.Configuration.VirtualFileSystem.ModLoader.ApplyExefsMods(TitleId, nsos);
+            ModLoadResult modLoadResult = _fileSystem.ModLoader.ApplyExefsMods(TitleId, nsos);
 
             // collect the nsos, ignoring ones that aren't used
             NsoExecutable[] programs = nsos.Where(x => x != null).ToArray();
@@ -500,9 +507,9 @@ namespace Ryujinx.HLE.HOS
                 metaData = modLoadResult.Npdm;
             }
 
-            _device.Configuration.VirtualFileSystem.ModLoader.ApplyNsoPatches(TitleId, programs);
+            _fileSystem.ModLoader.ApplyNsoPatches(TitleId, programs);
 
-            _device.Configuration.ContentManager.LoadEntries(_device);
+            _contentManager.LoadEntries(_device);
 
             bool usePtc = _device.System.EnablePtc;
 
@@ -517,11 +524,11 @@ namespace Ryujinx.HLE.HOS
             Graphics.Gpu.GraphicsConfig.TitleId = TitleIdText;
             _device.Gpu.HostInitalized.Set();
 
-            Ptc.Initialize(TitleIdText, DisplayVersion, usePtc, _device.Configuration.MemoryManagerMode);
+            Ptc.Initialize(TitleIdText, DisplayVersion, usePtc);
 
             ProgramLoader.LoadNsos(_device.System.KernelContext, out ProcessTamperInfo tamperInfo, metaData, executables: programs);
 
-            _device.Configuration.VirtualFileSystem.ModLoader.LoadCheats(TitleId, tamperInfo, _device.TamperMachine);
+            _fileSystem.ModLoader.LoadCheats(TitleId, tamperInfo, _device.TamperMachine);
         }
 
         public void LoadProgram(string filePath)
@@ -562,7 +569,7 @@ namespace Ryujinx.HLE.HOS
 
                             if (romfsSize != 0)
                             {
-                                _device.Configuration.VirtualFileSystem.SetRomFs(new HomebrewRomFsStream(input, obj.FileSize + (long)romfsOffset));
+                                _fileSystem.SetRomFs(new HomebrewRomFsStream(input, obj.FileSize + (long)romfsOffset));
                             }
 
                             if (nacpSize != 0)
@@ -610,7 +617,7 @@ namespace Ryujinx.HLE.HOS
                 executable = new NsoExecutable(new LocalStorage(filePath, FileAccess.Read), Path.GetFileNameWithoutExtension(filePath));
             }
 
-            _device.Configuration.ContentManager.LoadEntries(_device);
+            _contentManager.LoadEntries(_device);
 
             _titleName   = metaData.TitleName;
             TitleId      = metaData.Aci0.TitleId;
@@ -622,7 +629,7 @@ namespace Ryujinx.HLE.HOS
 
             ProgramLoader.LoadNsos(_device.System.KernelContext, out ProcessTamperInfo tamperInfo, metaData, executables: executable);
 
-            _device.Configuration.VirtualFileSystem.ModLoader.LoadCheats(TitleId, tamperInfo, _device.TamperMachine);
+            _fileSystem.ModLoader.LoadCheats(TitleId, tamperInfo, _device.TamperMachine);
         }
 
         private Npdm GetDefaultNpdm()
@@ -657,7 +664,7 @@ namespace Ryujinx.HLE.HOS
                     "No control file was found for this game. Using a dummy one instead. This may cause inaccuracies in some games.");
             }
 
-            FileSystemClient fileSystem = _device.Configuration.VirtualFileSystem.FsClient;
+            FileSystemClient fileSystem = _fileSystem.FsClient;
             Result           resultCode = fileSystem.EnsureApplicationCacheStorage(out _, applicationId, ref control);
 
             if (resultCode.IsFailure())

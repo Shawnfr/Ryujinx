@@ -11,6 +11,8 @@ namespace Ryujinx.Graphics.Shader.Translation
         // TODO: Non-hardcoded array size.
         public const int SamplerArraySize = 4;
 
+        private const int TotalConstantBuffers = 18;
+
         public ShaderStage Stage { get; }
 
         public bool GpPassthrough { get; }
@@ -29,7 +31,7 @@ namespace Ryujinx.Graphics.Shader.Translation
 
         public IGpuAccessor GpuAccessor { get; }
 
-        public TranslationFlags Flags { get; }
+        public TranslationOptions Options { get; }
 
         public int Size { get; private set; }
 
@@ -94,18 +96,18 @@ namespace Ryujinx.Graphics.Shader.Translation
         public int FirstConstantBufferBinding { get; private set; }
         public int FirstStorageBufferBinding { get; private set; }
 
-        public ShaderConfig(IGpuAccessor gpuAccessor, TranslationFlags flags, TranslationCounts counts)
+        public ShaderConfig(IGpuAccessor gpuAccessor, TranslationOptions options, TranslationCounts counts)
         {
             Stage                  = ShaderStage.Compute;
             GpuAccessor            = gpuAccessor;
-            Flags                  = flags;
+            Options                = options;
             _counts                = counts;
             TextureHandlesForCache = new HashSet<int>();
             _usedTextures          = new Dictionary<TextureInfo, TextureMeta>();
             _usedImages            = new Dictionary<TextureInfo, TextureMeta>();
         }
 
-        public ShaderConfig(ShaderHeader header, IGpuAccessor gpuAccessor, TranslationFlags flags, TranslationCounts counts) : this(gpuAccessor, flags, counts)
+        public ShaderConfig(ShaderHeader header, IGpuAccessor gpuAccessor, TranslationOptions options, TranslationCounts counts) : this(gpuAccessor, options, counts)
         {
             Stage             = header.Stage;
             GpPassthrough     = header.Stage == ShaderStage.Geometry && header.GpPassthrough;
@@ -203,6 +205,12 @@ namespace Ryujinx.Graphics.Shader.Translation
 
         public Operand CreateCbuf(int slot, int offset)
         {
+            if ((uint)slot >= TotalConstantBuffers)
+            {
+                GpuAccessor.Log($"Shader accesses invalid constant buffer {slot} at offset 0x{offset:X}.");
+                slot = 0;
+            }
+
             SetUsedConstantBuffer(slot);
             return OperandHelper.Cbuf(slot, offset);
         }

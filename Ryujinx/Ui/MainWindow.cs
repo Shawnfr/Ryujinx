@@ -74,6 +74,8 @@ namespace Ryujinx.Ui
         public RendererWidgetBase RendererWidget;
         public InputManager InputManager;
 
+        public bool IsFocused;
+
         private static bool UseVulkan = false;
 
 #pragma warning disable CS0169, CS0649, IDE0044
@@ -157,6 +159,8 @@ namespace Ryujinx.Ui
 
             WindowStateEvent += WindowStateEvent_Changed;
             DeleteEvent      += Window_Close;
+            FocusInEvent     += MainWindow_FocusInEvent;
+            FocusOutEvent    += MainWindow_FocusOutEvent;
 
             _applicationLibrary.ApplicationAdded        += Application_Added;
             _applicationLibrary.ApplicationCountUpdated += ApplicationCount_Updated;
@@ -226,6 +230,7 @@ namespace Ryujinx.Ui
 
             _gameTable.EnableSearch = true;
             _gameTable.SearchColumn = 2;
+            _gameTable.SearchEqualFunc = (model, col, key, iter) => !((string)model.GetValue(iter, col)).Contains(key, StringComparison.InvariantCultureIgnoreCase);
 
             UpdateColumns();
             UpdateGameTable();
@@ -270,6 +275,16 @@ namespace Ryujinx.Ui
         private void WindowStateEvent_Changed(object o, WindowStateEventArgs args)
         {
             _fullScreen.Label = args.Event.NewWindowState.HasFlag(Gdk.WindowState.Fullscreen) ? "Exit Fullscreen" : "Enter Fullscreen";
+        }
+
+        private void MainWindow_FocusOutEvent(object o, FocusOutEventArgs args)
+        {
+            IsFocused = false;
+        }
+
+        private void MainWindow_FocusInEvent(object o, FocusInEventArgs args)
+        {
+            IsFocused = true;
         }
 
         private void UpdateColumns()

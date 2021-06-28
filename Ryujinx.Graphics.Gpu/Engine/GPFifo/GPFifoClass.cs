@@ -79,13 +79,13 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
             // TODO: Acquire operations (Wait), interrupts for invalid combinations.
             if (operation == SemaphoredOperation.Release)
             {
-                _context.MemoryManager.Write(address, value);
+                _parent.MemoryManager.Write(address, value);
             }
             else if (operation == SemaphoredOperation.Reduction)
             {
                 bool signed = _state.State.SemaphoredFormat == SemaphoredFormat.Signed;
 
-                int mem = _context.MemoryManager.Read<int>(address);
+                int mem = _parent.MemoryManager.Read<int>(address);
 
                 switch (_state.State.SemaphoredReduction)
                 {
@@ -115,7 +115,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
                         break;
                 }
 
-                _context.MemoryManager.Write(address, value);
+                _parent.MemoryManager.Write(address, value);
             }
         }
 
@@ -162,6 +162,8 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Method call argument</param>
         public void SetReference(int argument)
         {
+            _context.Renderer.Pipeline.CommandBufferBarrier();
+
             _context.CreateHostSyncIfNeeded();
         }
 
@@ -197,9 +199,9 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// </summary>
         /// <param name="index">Index of the macro</param>
         /// <param name="argument">Argument to be pushed to the macro</param>
-        public void MmePushArgument(int index, int argument)
+        public void MmePushArgument(int index, ulong gpuVa, int argument)
         {
-            _macros[index].PushArgument(argument);
+            _macros[index].PushArgument(gpuVa, argument);
         }
 
         /// <summary>
@@ -209,7 +211,7 @@ namespace Ryujinx.Graphics.Gpu.Engine.GPFifo
         /// <param name="argument">Initial argument passed to the macro</param>
         public void MmeStart(int index, int argument)
         {
-            _macros[index].StartExecution(argument);
+            _macros[index].StartExecution(_context, _macroCode, argument);
         }
 
         /// <summary>

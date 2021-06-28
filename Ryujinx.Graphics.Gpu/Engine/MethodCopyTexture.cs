@@ -17,6 +17,8 @@ namespace Ryujinx.Graphics.Gpu.Engine
         /// <param name="argument">Method call argument</param>
         private void CopyTexture(GpuState state, int argument)
         {
+            var memoryManager = state.Channel.MemoryManager;
+
             var dstCopyTexture = state.Get<CopyTexture>(MethodOffset.CopyDstTexture);
             var srcCopyTexture = state.Get<CopyTexture>(MethodOffset.CopySrcTexture);
 
@@ -24,11 +26,29 @@ namespace Ryujinx.Graphics.Gpu.Engine
 
             var control = state.Get<CopyTextureControl>(MethodOffset.CopyTextureControl);
 
-            int srcX1 = (int)(region.SrcXF >> 32);
-            int srcY1 = (int)(region.SrcYF >> 32);
+            bool originCorner = control.UnpackOriginCorner();
 
-            int srcX2 = (int)((region.SrcXF + region.SrcWidthRF * region.DstWidth) >> 32);
-            int srcY2 = (int)((region.SrcYF + region.SrcHeightRF * region.DstHeight) >> 32);
+            long srcX = region.SrcXF;
+            long srcY = region.SrcYF;
+
+            if (originCorner)
+            {
+                // If the origin is corner, it is assumed that the guest API
+                // is manually centering the origin by adding a offset to the
+                // source region X/Y coordinates.
+                // Here we attempt to remove such offset to ensure we have the correct region.
+                // The offset is calculated as FactorXY / 2.0, where FactorXY = SrcXY / DstXY,
+                // so we do the same here by dividing the fixed point value by 2, while
+                // throwing away the fractional part to avoid rounding errors.
+                srcX -= (region.SrcWidthRF >> 33) << 32;
+                srcY -= (region.SrcHeightRF >> 33) << 32;
+            }
+
+            int srcX1 = (int)(srcX >> 32);
+            int srcY1 = (int)(srcY >> 32);
+
+            int srcX2 = srcX1 + (int)((region.SrcWidthRF * region.DstWidth + uint.MaxValue) >> 32);
+            int srcY2 = srcY1 + (int)((region.SrcHeightRF * region.DstHeight + uint.MaxValue) >> 32);
 
             int dstX1 = region.DstX;
             int dstY1 = region.DstY;
@@ -62,7 +82,13 @@ namespace Ryujinx.Graphics.Gpu.Engine
                 srcX1 = 0;
             }
 
-            Texture srcTexture = TextureManager.FindOrCreateTexture(srcCopyTexture, offset, srcCopyTextureFormat, true, srcHint);
+            Texture srcTexture = memoryManager.Physical.TextureCache.FindOrCreateTexture(
+                memoryManager,
+                srcCopyTexture,
+                offset,
+                srcCopyTextureFormat,
+                true,
+                srcHint);
 
             if (srcTexture == null)
             {
@@ -83,7 +109,13 @@ namespace Ryujinx.Graphics.Gpu.Engine
                 dstCopyTextureFormat = dstCopyTexture.Format.Convert();
             }
 
-            Texture dstTexture = TextureManager.FindOrCreateTexture(dstCopyTexture, 0, dstCopyTextureFormat, srcTexture.ScaleMode == TextureScaleMode.Scaled, dstHint);
+            Texture dstTexture = memoryManager.Physical.TextureCache.FindOrCreateTexture(
+                memoryManager,
+                dstCopyTexture,
+                0,
+                dstCopyTextureFormat,
+                srcTexture.ScaleMode == TextureScaleMode.Scaled,
+                dstHint);
 
             if (dstTexture == null)
             {

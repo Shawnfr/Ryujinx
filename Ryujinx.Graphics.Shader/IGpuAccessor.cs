@@ -41,7 +41,7 @@
 
         uint QueryConstantBufferUse()
         {
-            return 0;
+            return 0x1fff;
         }
 
         bool QueryIsTextureBuffer(int handle, int cbufSlot = -1)
@@ -70,6 +70,11 @@
         }
 
         bool QuerySupportsNonConstantTextureOffset()
+        {
+            return true;
+        }
+
+        bool QuerySupportsTextureShadowLod()
         {
             return true;
         }

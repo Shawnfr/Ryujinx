@@ -154,6 +154,11 @@ namespace Ryujinx.Graphics.OpenGL
             }
         }
 
+        public void CommandBufferBarrier()
+        {
+            GL.MemoryBarrier(MemoryBarrierFlags.CommandBarrierBit);
+        }
+
         public void CopyBuffer(BufferHandle source, BufferHandle destination, int srcOffset, int dstOffset, int size)
         {
             Buffer.Copy(source, destination, srcOffset, dstOffset, size);
@@ -182,11 +187,11 @@ namespace Ryujinx.Graphics.OpenGL
 
             PreDraw();
 
-            if (_primitiveType == PrimitiveType.Quads)
+            if (_primitiveType == PrimitiveType.Quads && !HwCapabilities.SupportsQuads)
             {
                 DrawQuadsImpl(vertexCount, instanceCount, firstVertex, firstInstance);
             }
-            else if (_primitiveType == PrimitiveType.QuadStrip)
+            else if (_primitiveType == PrimitiveType.QuadStrip && !HwCapabilities.SupportsQuads)
             {
                 DrawQuadStripImpl(vertexCount, instanceCount, firstVertex, firstInstance);
             }
@@ -310,7 +315,7 @@ namespace Ryujinx.Graphics.OpenGL
 
             IntPtr indexBaseOffset = _indexBaseOffset + firstIndex * indexElemSize;
 
-            if (_primitiveType == PrimitiveType.Quads)
+            if (_primitiveType == PrimitiveType.Quads && !HwCapabilities.SupportsQuads)
             {
                 DrawQuadsIndexedImpl(
                     indexCount,
@@ -320,7 +325,7 @@ namespace Ryujinx.Graphics.OpenGL
                     firstVertex,
                     firstInstance);
             }
-            else if (_primitiveType == PrimitiveType.QuadStrip)
+            else if (_primitiveType == PrimitiveType.QuadStrip && !HwCapabilities.SupportsQuads)
             {
                 DrawQuadStripIndexedImpl(
                     indexCount,
@@ -531,6 +536,57 @@ namespace Ryujinx.Graphics.OpenGL
             _tfEnabled = false;
         }
 
+        public void MultiDrawIndirectCount(BufferRange indirectBuffer, BufferRange parameterBuffer, int maxDrawCount, int stride)
+        {
+            if (!_program.IsLinked)
+            {
+                Logger.Debug?.Print(LogClass.Gpu, "Draw error, shader not linked.");
+                return;
+            }
+
+            PreDraw();
+
+            GL.BindBuffer((BufferTarget)All.DrawIndirectBuffer, indirectBuffer.Handle.ToInt32());
+            GL.BindBuffer((BufferTarget)All.ParameterBuffer, parameterBuffer.Handle.ToInt32());
+
+            GL.MultiDrawArraysIndirectCount(
+                _primitiveType,
+                (IntPtr)indirectBuffer.Offset,
+                (IntPtr)parameterBuffer.Offset,
+                maxDrawCount,
+                stride);
+
+            PostDraw();
+        }
+
+        public void MultiDrawIndexedIndirectCount(BufferRange indirectBuffer, BufferRange parameterBuffer, int maxDrawCount, int stride)
+        {
+            if (!_program.IsLinked)
+            {
+                Logger.Debug?.Print(LogClass.Gpu, "Draw error, shader not linked.");
+                return;
+            }
+
+            PreDraw();
+
+            _vertexArray.SetRangeOfIndexBuffer();
+
+            GL.BindBuffer((BufferTarget)All.DrawIndirectBuffer, indirectBuffer.Handle.ToInt32());
+            GL.BindBuffer((BufferTarget)All.ParameterBuffer, parameterBuffer.Handle.ToInt32());
+
+            GL.MultiDrawElementsIndirectCount(
+                _primitiveType,
+                (Version46)_elementsType,
+                (IntPtr)indirectBuffer.Offset,
+                (IntPtr)parameterBuffer.Offset,
+                maxDrawCount,
+                stride);
+
+            _vertexArray.RestoreIndexBuffer();
+
+            PostDraw();
+        }
+
         public void SetAlphaTest(bool enable, float reference, CompareOp op)
         {
             if (!enable)
@@ -729,7 +785,7 @@ namespace Ryujinx.Graphics.OpenGL
 
             EnsureVertexArray();
 
-            _vertexArray.SetIndexBuffer(buffer.Handle);
+            _vertexArray.SetIndexBuffer(buffer);
         }
 
         public void SetLogicOpState(bool enable, LogicalOp op)
@@ -744,6 +800,20 @@ namespace Ryujinx.Graphics.OpenGL
             {
                 GL.Disable(EnableCap.ColorLogicOp);
             }
+        }
+
+        public void SetLineParameters(float width, bool smooth)
+        {
+            if (smooth)
+            {
+                GL.Enable(EnableCap.LineSmooth);
+            }
+            else
+            {
+                GL.Disable(EnableCap.LineSmooth);
+            }
+
+            GL.LineWidth(width);
         }
 
         public void SetPointParameters(float size, bool isProgramPointSize, bool enablePointSprite, Origin origin)
@@ -1232,7 +1302,7 @@ namespace Ryujinx.Graphics.OpenGL
             }
         }
 
-        private void RestoreComponentMask(int index)
+        public void RestoreComponentMask(int index)
         {
             // If the bound render target is bgra, swap the red and blue masks.
             uint redMask = _fpIsBgra[index] == 0 ? 1u : 4u;

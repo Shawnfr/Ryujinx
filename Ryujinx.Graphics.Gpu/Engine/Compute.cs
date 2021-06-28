@@ -16,13 +16,9 @@ namespace Ryujinx.Graphics.Gpu.Engine
         /// <param name="argument">Method call argument</param>
         public void Dispatch(GpuState state, int argument)
         {
-            var memoryManager = state.Channel.MemoryManager;
-
-            FlushUboDirty(memoryManager);
-
             uint qmdAddress = (uint)state.Get<int>(MethodOffset.DispatchParamsAddress);
 
-            var qmd = state.Channel.MemoryManager.Read<ComputeQmd>((ulong)qmdAddress << 8);
+            var qmd = _context.MemoryManager.Read<ComputeQmd>((ulong)qmdAddress << 8);
 
             GpuVa shaderBaseAddress = state.Get<GpuVa>(MethodOffset.ShaderBaseAddress);
 
@@ -42,10 +38,10 @@ namespace Ryujinx.Graphics.Gpu.Engine
                 ulong gpuVa = (uint)qmd.ConstantBufferAddrLower(index) | (ulong)qmd.ConstantBufferAddrUpper(index) << 32;
                 ulong size = (ulong)qmd.ConstantBufferSize(index);
 
-                state.Channel.BufferManager.SetComputeUniformBuffer(index, gpuVa, size);
+                BufferManager.SetComputeUniformBuffer(index, gpuVa, size);
             }
 
-            ShaderBundle cs = memoryManager.Physical.ShaderCache.GetComputeShader(
+            ShaderBundle cs = ShaderCache.GetComputeShader(
                 state,
                 shaderGpuVa,
                 qmd.CtaThreadDimension0,
@@ -59,9 +55,9 @@ namespace Ryujinx.Graphics.Gpu.Engine
             var samplerPool = state.Get<PoolState>(MethodOffset.SamplerPoolState);
             var texturePool = state.Get<PoolState>(MethodOffset.TexturePoolState);
 
-            state.Channel.TextureManager.SetComputeSamplerPool(samplerPool.Address.Pack(), samplerPool.MaximumId, qmd.SamplerIndex);
-            state.Channel.TextureManager.SetComputeTexturePool(texturePool.Address.Pack(), texturePool.MaximumId);
-            state.Channel.TextureManager.SetComputeTextureBufferIndex(state.Get<int>(MethodOffset.TextureBufferIndex));
+            TextureManager.SetComputeSamplerPool(samplerPool.Address.Pack(), samplerPool.MaximumId, qmd.SamplerIndex);
+            TextureManager.SetComputeTexturePool(texturePool.Address.Pack(), texturePool.MaximumId);
+            TextureManager.SetComputeTextureBufferIndex(state.Get<int>(MethodOffset.TextureBufferIndex));
 
             ShaderProgramInfo info = cs.Shaders[0].Info;
 
@@ -78,34 +74,31 @@ namespace Ryujinx.Graphics.Gpu.Engine
                     continue;
                 }
 
-                ulong cbDescAddress = state.Channel.BufferManager.GetComputeUniformBufferAddress(0);
+                ulong cbDescAddress = BufferManager.GetComputeUniformBufferAddress(0);
 
                 int cbDescOffset = 0x260 + (cb.Slot - 8) * 0x10;
 
                 cbDescAddress += (ulong)cbDescOffset;
 
-                SbDescriptor cbDescriptor = state.Channel.MemoryManager.Physical.Read<SbDescriptor>(cbDescAddress);
+                SbDescriptor cbDescriptor = _context.PhysicalMemory.Read<SbDescriptor>(cbDescAddress);
 
-                state.Channel.BufferManager.SetComputeUniformBuffer(cb.Slot, cbDescriptor.PackAddress(), (uint)cbDescriptor.Size);
+                BufferManager.SetComputeUniformBuffer(cb.Slot, cbDescriptor.PackAddress(), (uint)cbDescriptor.Size);
             }
 
             for (int index = 0; index < info.SBuffers.Count; index++)
             {
                 BufferDescriptor sb = info.SBuffers[index];
 
-                ulong sbDescAddress = state.Channel.BufferManager.GetComputeUniformBufferAddress(0);
+                ulong sbDescAddress = BufferManager.GetComputeUniformBufferAddress(sb.SbCbSlot);
+                sbDescAddress += (ulong)sb.SbCbOffset * 4;
 
-                int sbDescOffset = 0x310 + sb.Slot * 0x10;
+                SbDescriptor sbDescriptor = _context.PhysicalMemory.Read<SbDescriptor>(sbDescAddress);
 
-                sbDescAddress += (ulong)sbDescOffset;
-
-                SbDescriptor sbDescriptor = state.Channel.MemoryManager.Physical.Read<SbDescriptor>(sbDescAddress);
-
-                state.Channel.BufferManager.SetComputeStorageBuffer(sb.Slot, sbDescriptor.PackAddress(), (uint)sbDescriptor.Size, sb.Flags);
+                BufferManager.SetComputeStorageBuffer(sb.Slot, sbDescriptor.PackAddress(), (uint)sbDescriptor.Size, sb.Flags);
             }
 
-            state.Channel.BufferManager.SetComputeStorageBufferBindings(info.SBuffers);
-            state.Channel.BufferManager.SetComputeUniformBufferBindings(info.CBuffers);
+            BufferManager.SetComputeStorageBufferBindings(info.SBuffers);
+            BufferManager.SetComputeUniformBufferBindings(info.CBuffers);
 
             var textureBindings = new TextureBindingInfo[info.Textures.Count];
 
@@ -123,7 +116,7 @@ namespace Ryujinx.Graphics.Gpu.Engine
                     descriptor.Flags);
             }
 
-            state.Channel.TextureManager.SetComputeTextures(textureBindings);
+            TextureManager.SetComputeTextures(textureBindings);
 
             var imageBindings = new TextureBindingInfo[info.Images.Count];
 
@@ -143,10 +136,10 @@ namespace Ryujinx.Graphics.Gpu.Engine
                     descriptor.Flags);
             }
 
-            state.Channel.TextureManager.SetComputeImages(imageBindings);
+            TextureManager.SetComputeImages(imageBindings);
 
-            state.Channel.TextureManager.CommitComputeBindings();
-            state.Channel.BufferManager.CommitComputeBindings();
+            TextureManager.CommitComputeBindings();
+            BufferManager.CommitComputeBindings();
 
             _context.Renderer.Pipeline.DispatchCompute(
                 qmd.CtaRasterWidth,

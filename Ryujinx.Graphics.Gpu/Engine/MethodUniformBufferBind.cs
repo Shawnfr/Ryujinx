@@ -66,7 +66,7 @@ namespace Ryujinx.Graphics.Gpu.Engine
 
             int index = (argument >> 4) & 0x1f;
 
-            FlushUboDirty(state.Channel.MemoryManager);
+            FlushUboDirty();
 
             if (enable)
             {
@@ -74,11 +74,11 @@ namespace Ryujinx.Graphics.Gpu.Engine
 
                 ulong address = uniformBuffer.Address.Pack();
 
-                state.Channel.BufferManager.SetGraphicsUniformBuffer((int)type, index, address, (uint)uniformBuffer.Size);
+                BufferManager.SetGraphicsUniformBuffer((int)type, index, address, (uint)uniformBuffer.Size);
             }
             else
             {
-                state.Channel.BufferManager.SetGraphicsUniformBuffer((int)type, index, 0, 0);
+                BufferManager.SetGraphicsUniformBuffer((int)type, index, 0, 0);
             }
         }
     }

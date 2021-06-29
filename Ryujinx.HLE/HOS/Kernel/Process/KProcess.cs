@@ -126,13 +126,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
 
             AddressSpaceType addrSpaceType = (AddressSpaceType)((int)(creationInfo.Flags & ProcessCreationFlags.AddressSpaceMask) >> (int)ProcessCreationFlags.AddressSpaceShift);
 
-            Pid = KernelContext.NewKipId();
-
-            if (Pid == 0 || (ulong)Pid >= KernelConstants.InitialProcessId)
-            {
-                throw new InvalidOperationException($"Invalid KIP Id {Pid}.");
-            }
-
             InitializeMemoryManager(creationInfo.Flags);
 
             bool aslrEnabled = creationInfo.Flags.HasFlag(ProcessCreationFlags.EnableAslr);
@@ -176,6 +169,13 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
             if (result != KernelResult.Success)
             {
                 return result;
+            }
+
+            Pid = KernelContext.NewKipId();
+
+            if (Pid == 0 || (ulong)Pid >= KernelConstants.InitialProcessId)
+            {
+                throw new InvalidOperationException($"Invalid KIP Id {Pid}.");
             }
 
             return ParseProcessInfo(creationInfo);
@@ -233,13 +233,6 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
 
             AddressSpaceType addrSpaceType = (AddressSpaceType)((int)(creationInfo.Flags & ProcessCreationFlags.AddressSpaceMask) >> (int)ProcessCreationFlags.AddressSpaceShift);
 
-            Pid = KernelContext.NewProcessId();
-
-            if (Pid == -1 || (ulong)Pid < KernelConstants.InitialProcessId)
-            {
-                throw new InvalidOperationException($"Invalid Process Id {Pid}.");
-            }
-
             InitializeMemoryManager(creationInfo.Flags);
 
             bool aslrEnabled = creationInfo.Flags.HasFlag(ProcessCreationFlags.EnableAslr);
@@ -291,6 +284,13 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
                 CleanUpForError();
 
                 return result;
+            }
+
+            Pid = KernelContext.NewProcessId();
+
+            if (Pid == -1 || (ulong)Pid < KernelConstants.InitialProcessId)
+            {
+                throw new InvalidOperationException($"Invalid Process Id {Pid}.");
             }
 
             result = ParseProcessInfo(creationInfo);
@@ -1049,9 +1049,14 @@ namespace Ryujinx.HLE.HOS.Kernel.Process
                 _ => 39
             };
 
-            bool for64Bit = flags.HasFlag(ProcessCreationFlags.Is64Bit);
+            Context = _contextFactory.Create(KernelContext, 1UL << addrSpaceBits, InvalidAccessHandler);
 
-            Context = _contextFactory.Create(KernelContext, Pid, 1UL << addrSpaceBits, InvalidAccessHandler, for64Bit);
+            // TODO: This should eventually be removed.
+            // The GPU shouldn't depend on the CPU memory manager at all.
+            if (flags.HasFlag(ProcessCreationFlags.IsApplication))
+            {
+                KernelContext.Device.Gpu.SetVmm((IVirtualMemoryManagerTracked)CpuMemory);
+            }
 
             if (Context.AddressSpace is MemoryManagerHostMapped)
             {

@@ -8,9 +8,9 @@ namespace Ryujinx.Cpu
     {
         private readonly Translator _translator;
 
-        public CpuContext(IMemoryManager memory, bool for64Bit)
+        public CpuContext(IMemoryManager memory)
         {
-            _translator = new Translator(new JitMemoryAllocator(), memory, for64Bit);
+            _translator = new Translator(new JitMemoryAllocator(), memory);
             memory.UnmapEvent += UnmapHandler;
         }
 

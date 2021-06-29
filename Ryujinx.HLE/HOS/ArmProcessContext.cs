@@ -1,34 +1,28 @@
 ﻿using ARMeilleure.Memory;
 using ARMeilleure.State;
 using Ryujinx.Cpu;
-using Ryujinx.Graphics.Gpu;
 using Ryujinx.HLE.HOS.Kernel.Process;
 using Ryujinx.Memory;
+using System;
 
 namespace Ryujinx.HLE.HOS
 {
-    class ArmProcessContext<T> : IProcessContext where T : class, IVirtualMemoryManagerTracked, IMemoryManager
+    class ArmProcessContext<T> : IProcessContext where T : class, IVirtualMemoryManager, IMemoryManager
     {
-        private readonly long _pid;
-        private readonly GpuContext _gpuContext;
         private readonly CpuContext _cpuContext;
         private T _memoryManager;
 
         public IVirtualMemoryManager AddressSpace => _memoryManager;
 
-        public ArmProcessContext(long pid, GpuContext gpuContext, T memoryManager, bool for64Bit)
+        public ArmProcessContext(T memoryManager)
         {
             if (memoryManager is IRefCounted rc)
             {
                 rc.IncrementReferenceCount();
             }
 
-            gpuContext.RegisterProcess(pid, memoryManager);
-
-            _pid = pid;
-            _gpuContext = gpuContext;
-            _cpuContext = new CpuContext(memoryManager, for64Bit);
             _memoryManager = memoryManager;
+            _cpuContext = new CpuContext(memoryManager);
         }
 
         public void Execute(ExecutionContext context, ulong codeAddress)
@@ -43,7 +37,6 @@ namespace Ryujinx.HLE.HOS
                 rc.DecrementReferenceCount();
 
                 _memoryManager = null;
-                _gpuContext.UnregisterProcess(_pid);
             }
         }
     }

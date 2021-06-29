@@ -13,10 +13,9 @@ namespace Ryujinx.Graphics.Gpu.Memory
     /// </summary>
     class Buffer : IRange, IDisposable
     {
-        private const ulong GranularBufferThreshold = 4096;
+        private static ulong GranularBufferThreshold = 4096;
 
         private readonly GpuContext _context;
-        private readonly PhysicalMemory _physicalMemory;
 
         /// <summary>
         /// Host buffer handle.
@@ -69,16 +68,14 @@ namespace Ryujinx.Graphics.Gpu.Memory
         /// Creates a new instance of the buffer.
         /// </summary>
         /// <param name="context">GPU context that the buffer belongs to</param>
-        /// <param name="physicalMemory">Physical memory where the buffer is mapped</param>
         /// <param name="address">Start address of the buffer</param>
         /// <param name="size">Size of the buffer in bytes</param>
         /// <param name="baseBuffers">Buffers which this buffer contains, and will inherit tracking handles from</param>
-        public Buffer(GpuContext context, PhysicalMemory physicalMemory, ulong address, ulong size, IEnumerable<Buffer> baseBuffers = null)
+        public Buffer(GpuContext context, ulong address, ulong size, IEnumerable<Buffer> baseBuffers = null)
         {
-            _context        = context;
-            _physicalMemory = physicalMemory;
-            Address         = address;
-            Size            = size;
+            _context = context;
+            Address  = address;
+            Size     = size;
 
             Handle = context.Renderer.CreateBuffer((int)size);
 
@@ -103,11 +100,11 @@ namespace Ryujinx.Graphics.Gpu.Memory
 
             if (_useGranular)
             {
-                _memoryTrackingGranular = physicalMemory.BeginGranularTracking(address, size, baseHandles);
+                _memoryTrackingGranular = context.PhysicalMemory.BeginGranularTracking(address, size, baseHandles);
             }
             else
             {
-                _memoryTracking = physicalMemory.BeginTracking(address, size);
+                _memoryTracking = context.PhysicalMemory.BeginTracking(address, size);
 
                 if (baseHandles != null)
                 {
@@ -210,9 +207,9 @@ namespace Ryujinx.Graphics.Gpu.Memory
                     }
                     else
                     {
-                        _context.Renderer.SetBufferData(Handle, 0, _physicalMemory.GetSpan(Address, (int)Size));
+                        _context.Renderer.SetBufferData(Handle, 0, _context.PhysicalMemory.GetSpan(Address, (int)Size));
                     }
-
+                    
                     _sequenceNumber = _context.SequenceNumber;
                 }
             }
@@ -366,7 +363,7 @@ namespace Ryujinx.Graphics.Gpu.Memory
         {
             int offset = (int)(mAddress - Address);
 
-            _context.Renderer.SetBufferData(Handle, offset, _physicalMemory.GetSpan(mAddress, (int)mSize));
+            _context.Renderer.SetBufferData(Handle, offset, _context.PhysicalMemory.GetSpan(mAddress, (int)mSize));
         }
 
         /// <summary>
@@ -415,7 +412,7 @@ namespace Ryujinx.Graphics.Gpu.Memory
             byte[] data = _context.Renderer.GetBufferData(Handle, offset, (int)size);
 
             // TODO: When write tracking shaders, they will need to be aware of changes in overlapping buffers.
-            _physicalMemory.WriteUntracked(address, data);
+            _context.PhysicalMemory.WriteUntracked(address, data);
         }
 
         /// <summary>
